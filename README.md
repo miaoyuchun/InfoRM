@@ -13,11 +13,13 @@ This repository contains the official implementation of this article
 If you find our work useful in your research, please cite:
 
 ```
-@article{miao2024inform,
-  title={InfoRM: Mitigating Reward Hacking in RLHF via Information-Theoretic Reward Modeling},
-  author={Miao, Yuchun and Zhang, Sen and Ding, Liang and Bao, Rong and Zhang, Lefei and Tao, Dacheng},
-  journal={arXiv preprint arXiv:2402.09345},
-  year={2024}
+@inproceedings{
+miao2024inform,
+title={Info{RM}: Mitigating Reward Hacking in {RLHF} via Information-Theoretic Reward Modeling},
+author={Yuchun Miao and Sen Zhang and Liang Ding and Rong Bao and Lefei Zhang and Dacheng Tao},
+booktitle={The Thirty-eighth Annual Conference on Neural Information Processing Systems},
+year={2024},
+url={https://openreview.net/forum?id=3XnBVK9sD6}
 }
 ```
 
