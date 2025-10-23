@@ -1,4 +1,4 @@
-import argparse
+import argparse, os
 from datetime import datetime
 from typing import List
 
@@ -415,8 +415,10 @@ if __name__ == "__main__":
 
     # InfoRM
     parser.add_argument("--use_inform", action="store_true", default=False)
-    parser.add_argument("--uncertainty_coef", type=float, default=0.0, help="the coefficient of uncertainty")
+    parser.add_argument("--ibl_coef", type=str, default=None, help="the coefficient of ib latent space penalty, first for helpful class, second for harmless class. 0: only calculate ibl; >0: use and calculate ibl")
+    parser.add_argument("--ibl_path", type=str, default=None, help="the initial ibl path")
     parser.add_argument("--lr_drop_ratio", type=float, default=0.1, help="the ratio of learning rate ratio")
+    parser.add_argument("--class_key", type=str, default=None, help="JSON dataset key")
 
     args = parser.parse_args()
 
@@ -460,6 +462,18 @@ if __name__ == "__main__":
 
         # Patch hub to download models from modelscope to speed up.
         patch_hub()
+
+    if args.ibl_coef:
+        args.ibl_coef = [float(i) for i in args.ibl_coef.split(",")]
+        print("args.ibl_coef is set to {}".format(args.ibl_coef))
+        assert args.use_inform
+        if args.ibl_path == None:   
+            args.ibl_path = ','.join([os.path.join(os.path.dirname(args.reward_pretrain), "prepare_ib_representation", "sft_anthropic_helpful_ib_representation.npy"), 
+                                    os.path.join(os.path.dirname(args.reward_pretrain), "prepare_ib_representation", "sft_anthropic_harmless_ib_representation.npy")])
+            for path in args.ibl_path.split(','):
+                assert os.path.isfile(path), f"{path} don't exist !"
+                print(f"latent space regularization will be initialied from {args.ibl_path}")
+        
 
     # args.input_template="User: {}\nAssistant: "
     # args.tokenizer_chat_template="{% if not add_generation_prompt is defined %}{% set add_generation_prompt = false %}{% endif %}{% set loop_messages = messages %}{% for message in loop_messages %}{% set content = '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n' + message['content'] | trim + '<|eot_id|>' %}{% if loop.index0 == 0 %}{% set content = bos_token + content %}{% endif %}{{ content }}{% endfor %}{% if add_generation_prompt %}{{ '<|start_header_id|>assistant<|end_header_id|>\n\n' }}{% endif %}"

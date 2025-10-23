@@ -15,7 +15,7 @@ from openrlhf.models.utils import compute_approx_kl, masked_mean, unpacking_samp
 from openrlhf.utils.distributed_sampler import DistributedSampler
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveExperienceMaker, NaiveReplayBuffer
-
+import numpy as np
 
 class PPOTrainer(ABC):
     """
@@ -217,6 +217,7 @@ class PPOTrainer(ABC):
         start_episode = consumed_samples // args.rollout_batch_size // num_rollouts_per_episodes
         consumed_samples = consumed_samples % (num_rollouts_per_episodes * args.rollout_batch_size)
 
+        self.sequeeze_list_save, self.status_list_save = [], []
         for episode in range(start_episode, args.num_episodes):
             if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
                 self.prompts_dataloader.sampler.set_epoch(
@@ -227,10 +228,11 @@ class PPOTrainer(ABC):
                 desc=f"Episode [{episode + 1}/{args.num_episodes}]",
                 disable=not self.strategy.is_rank_0(),
             )
+            steps_max = self.prompts_dataloader.__len__()
 
-            for rand_prompts, labels in self.prompts_dataloader: # bs: args.rollout_batch_size // strategy.world_size; per rand_prompts corresponding to a buffer with buffer。
+            for rand_prompts, labels, classes in self.prompts_dataloader: # bs: args.rollout_batch_size // strategy.world_size; per rand_prompts corresponding to a buffer with buffer。
                 for i, experience in enumerate(
-                    self.experience_maker.make_experience_list(rand_prompts, labels, **self.generate_kwargs)
+                    self.experience_maker.make_experience_list(rand_prompts, labels, classes, **self.generate_kwargs)
                 ):
                     if i == 0:
                         if isinstance(experience.sequences, list):
@@ -241,6 +243,22 @@ class PPOTrainer(ABC):
                             output_list= self.tokenizer.batch_decode([experience.sequences[j][experience.attention_mask[i] == 1].tolist() for j in range(min(experience.sequences.size(0), 4))])
                             separate = '\n\n<============================Reponse Examples==========================>\n\n'
                             self.strategy.print(separate + separate.join(output_list))
+                        
+                        # assert len(experience.info['prompts']) == len(experience.info['classes'])
+                        # for j in range(min(len(experience.info['prompts']), 4)):
+                        #     separate = '\n\n<============================Prompt & Class Examples==========================>\n\n'
+                        #     self.strategy.print(separate + experience.info['prompts'][j])
+                        #     self.strategy.print('\n[Class]: ' + experience.info['classes'][j])
+                    
+                    # save
+                    if i == 0 and self.strategy.is_rank_0():
+                        self.sequeeze_list_save.append([(seq.tolist(), cla) for seq, cla in zip(experience.sequences, experience.info['classes'])])
+                            
+                    if 'prompts' in experience.info:
+                        del experience.info['prompts']
+                    if 'classes' in experience.info:
+                        del experience.info['classes']
+
                     self.replay_buffer.append(experience)
 
                 if self.args.advantage_estimator != "group_norm":
@@ -256,8 +274,21 @@ class PPOTrainer(ABC):
                 client_states = {"consumed_samples": steps * args.rollout_batch_size}
                 self.save_logs_and_checkpoints(args, steps, pbar, status, client_states)
 
+                # self.save_model_to_oss(args, steps_max, steps)
+
+                # save
+                if self.strategy.is_rank_0():
+                    self.status_list_save.append(status)
+
                 pbar.update()
                 steps = steps + 1
+
+            # save
+            if self.strategy.is_rank_0():
+                data_save = {"sequeeze_list": self.sequeeze_list_save, "status_list": self.status_list_save}
+                np.save(os.path.join(self.strategy.args.use_tensorboard, "document.npy"), data_save, allow_pickle=True)
+                self.strategy.print("Successfully save at {}".format(os.path.join(self.strategy.args.use_tensorboard, "document.npy")))
+
 
         if self._wandb is not None and self.strategy.is_rank_0():
             self._wandb.finish()
@@ -307,6 +338,8 @@ class PPOTrainer(ABC):
                         "tlen": status["total_length"],
                         "kl": status["kl"],
                         "act_lr": status["actor_lr"],
+                        "mahalanobis_helpful": status["mahalanobis_helpful"],
+                        "mahalanobis_harmless": status["mahalanobis_harmless"]
                     }
 
                 if "critic_loss" in status:

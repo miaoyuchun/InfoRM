@@ -210,7 +210,7 @@ class SFTTrainer(ABC):
 
                 if print_example:
                     a = labels.clone()
-                    a[a==self.loss_fn.IGNORE_INDEX] = 2
+                    a[a==self.loss_fn.IGNORE_INDEX] = 0
                     self.strategy.print("==========> An Example of Lable")
                     self.strategy.print(self.tokenizer.decode(a[0].squeeze()))
                     if not self.packing_samples:

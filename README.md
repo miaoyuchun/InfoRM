@@ -5,9 +5,14 @@ This repository contains the official implementation of this article
 
 [Yuchun Miao][myc], [Sen Zhang][zs], [Liang Ding][dl], [Rong Bao][br], [Lefei Zhang][zlf], [Dacheng Tao][tdc]
 
+This repository also provides the official implementation of our extended journal version, submitted to IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI):
+
+**[[ArXiv 2025] Information-Theoretic Reward Modeling for Stable RLHF: Detecting and Mitigating Reward Hacking][2]**
+
+[Yuchun Miao][myc], [Liang Ding][dl], [Sen Zhang][zs], [Rong Bao][br], [Lefei Zhang][zlf], [Dacheng Tao][tdc]
 
 ## Installation
-```
+```bash
 conda create -n inform python=3.12 -y
 conda activate inform
 
@@ -24,7 +29,7 @@ The data format used in this project is fully consistent with that of [OpenRLHF]
 
 ## Supervised Fine-tuning
 
-```
+```bash
 bash ./example_sft/slurm/scc_sft_llama3_8b_sharegpt_packing.sh
 ```
 Before running the above commands, you should replace `WORKSPACE`, `pretrain`, and `dataset` with the corresponding project path, pretrained model path, and dataset path, respectively.
@@ -32,12 +37,12 @@ Before running the above commands, you should replace `WORKSPACE`, `pretrain`, a
 ## RM Training
 
 ### Information-Theoretic Reward Model
-```
+```bash
 bash ./example_rm/slurm/scc_rm_llama3_hh105_wprompt_packing_inform.sh
 ```
 
 ### Standard Reward Model
-```
+```bash
 bash ./example_rm/slurm/scc_rm_llama3_hh105_wprompt_packing_baseline.sh
 ```
 
@@ -45,27 +50,47 @@ Before running the above commands, you should replace `WORKSPACE`, `pretrain`, a
 
 ## PPO Training
 
-### PPO with InfoRM
+### PPO with Standard-RM
+```bash
+bash ./example_ppo/slurm/scc_ppo_ray_llama3_8b_hh105rm_reproduce_hacking_offload_baseline.sh
 ```
+
+### PPO with InfoRM
+```bash
 bash ./example_ppo/slurm/scc_ppo_ray_llama3_8b_hh105rm_reproduce_hacking_offload_inform.sh
 ```
 
-### PPO with Standard-RM
+### PPO with InfoRM and IBL
+```bash
+bash ./example_ppo/script/prepare_ib_representation.sh
+
+bash ./example_ppo/slurm/scc_ppo_ray_llama3_8b_hh105rm_reproduce_hacking_offload_inform_ibl.sh
 ```
-bash ./example_ppo/slurm/scc_ppo_ray_llama3_8b_hh105rm_reproduce_hacking_offload_baseline.sh
-```
+
+
 * Before running the above commands, you should replace `WORKSPACE`, `pretrain`, `reward_pretrain`, and `dataset` with the corresponding project path, sft model path, rm model path, and dataset path, respectively.
 
 * `./example_ppo/script/generate_eval.sh` is used to generate responses using the SFT and RLHF models.  This step is already included in the PPO training script above.
 
 * `./example_ppo/script/ib_latent_eval.sh` is used to generate T-SNE visualizations based on the representations of samples in the latent space of InfoRM. You can assess the extent of reward hacking by identifying outliers in these plots. This step is also included in the PPO training script above.
 
-## Citation
-If you find our work useful in your research, please cite:
+* `./example_ppo/script/prepare_ib_representation.sh` is used to pre-compute and store the representations of SFT model responses in the IB latent space, which are later utilized to compute Mahalanobis distances during the RL process.
 
+* Before running `./example_ppo/slurm/scc_ppo_ray_llama3_8b_hh105rm_reproduce_hacking_offload_inform_ibl.sh`, the prompt dataset should include an additional key, `class`, whose value must be one of the two options: `helpful` or `harmless`, indicating the dataset source of each sample.
+
+###  Reward Hacking Indicator: Mahalanobis Outlier Probability (MOP)
+```bash
+python -m openrlhf.eval.compute_mop
 ```
-@inproceedings{
-miao2024inform,
+
+* Before running the above commands, make sure to obtain `sft_representation` and `rlhf_representation` as defined in Line #78 and Line #80.
+
+## Citation
+If you find our work useful in your research, please consider citing both our **conference** and **journal** versions:
+
+### Conference Version
+```bibtex
+@inproceedings{miao2024inform,
 title={Info{RM}: Mitigating Reward Hacking in {RLHF} via Information-Theoretic Reward Modeling},
 author={Yuchun Miao and Sen Zhang and Liang Ding and Rong Bao and Lefei Zhang and Dacheng Tao},
 booktitle={The Thirty-eighth Annual Conference on Neural Information Processing Systems},
@@ -74,8 +99,21 @@ url={https://openreview.net/forum?id=3XnBVK9sD6}
 }
 ```
 
+### Journal Version
+```bibtex
+@misc{miao2025informationtheoreticrewardmodelingstable,
+title={Information-Theoretic Reward Modeling for Stable RLHF: Detecting and Mitigating Reward Hacking}, 
+author={Yuchun Miao and Liang Ding and Sen Zhang and Rong Bao and Lefei Zhang and Dacheng Tao},
+year={2025},
+eprint={2510.13694},
+archivePrefix={arXiv},
+primaryClass={cs.LG},
+url={https://arxiv.org/abs/2510.13694}, 
+}
+```
 
 [1]: https://arxiv.org/abs/2402.09345
+[2]: https://arxiv.org/abs/2510.13694
 [myc]: https://scholar.google.com/citations?user=-ec3mwUAAAAJ&hl=en
 [zs]: https://scholar.google.com/citations?user=-bJJNV0AAAAJ&hl=en
 [dl]: https://scholar.google.com/citations?user=lFCLvOAAAAAJ&hl=en

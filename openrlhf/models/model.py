@@ -190,6 +190,8 @@ def _get_reward_model(base_pretrained_model, base_llm_model, value_head_prefix="
             ring_attn_group=None,
             pad_sequence=False,
             packed_seq_lens=None,
+            prompts=None,
+            classes=None
         ) -> torch.Tensor:
             if not self.packing_samples:
                 # https://github.com/OpenRLHF/OpenRLHF/issues/217

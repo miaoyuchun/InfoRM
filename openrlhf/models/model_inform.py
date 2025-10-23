@@ -1,5 +1,5 @@
 from typing import Optional, Union
-
+import numpy as np
 import deepspeed
 import torch
 import torch.nn as nn
@@ -11,7 +11,7 @@ from transformers import AutoConfig, AutoModel, BitsAndBytesConfig
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
 from transformers.activations import ACT2FN
 from openrlhf.utils.logging_utils import init_logger
-
+from scipy.spatial import distance
 from .ring_attn_utils import convert_ring_attn_params
 from .utils import reset_position_ids
 
@@ -25,6 +25,18 @@ def kl_divergence(mu, logvar):
     kl_loss = klds.mean() # torch.Size([1])
     
     return kl_loss
+
+def cal_mahalanobis(buffer, ib_representation):
+    mean_data = np.mean(buffer, axis=0)
+    cov_matrix = np.cov(buffer.T)
+    cov_matrix += np.eye(cov_matrix.shape[0]) * 1e-6
+    inv_cov_matrix = np.linalg.inv(cov_matrix)
+    mahalanobis_distance_list = []
+    for i in range(ib_representation.shape[0]):
+        mahalanobis_distance = distance.mahalanobis(ib_representation[i], mean_data, inv_cov_matrix)
+        mahalanobis_distance_list.append(mahalanobis_distance)
+
+    return torch.tensor(mahalanobis_distance_list).cuda()
 
 class MLP(nn.Module):
     def __init__(self, config):
@@ -81,7 +93,8 @@ def get_llm_for_sequence_regression_inform(
     device_map=None,
     packing_samples=False,
     latent_dim=128,
-    uncertainty_coef=0,
+    ibl_coef=None,
+    ibl_path=None,
     use_complex_decoder=False,
     **kwargs,
 ) -> nn.Module:
@@ -124,7 +137,7 @@ def get_llm_for_sequence_regression_inform(
     config.decode_head_prefix = decode_head_prefix if 'decode_head_prefix' not in config else config.decode_head_prefix
     config.use_complex_decoder = use_complex_decoder if 'use_complex_decoder' not in config else config.use_complex_decoder
 
-    config.uncertainty_coef = uncertainty_coef
+    config.ibl_coef, config.ibl_path = ibl_coef, ibl_path
 
     base_class = AutoModel._model_mapping[type(config)]
     base_pretrained_class = base_class.__base__
@@ -204,7 +217,6 @@ def _get_reward_model(base_pretrained_model, base_llm_model, packing_samples=Fal
             self.decode_head_prefix = config.decode_head_prefix
 
             self.latent_dim = config.latent_dim
-            self.uncertainty_coef = config.uncertainty_coef
             self.use_complex_decoder = config.use_complex_decoder
 
             if self.use_complex_decoder:
@@ -214,7 +226,6 @@ def _get_reward_model(base_pretrained_model, base_llm_model, packing_samples=Fal
                 setattr(self, self.decode_head_prefix, nn.Linear(self.latent_dim, 1, bias=False))
       
             setattr(self, self.encode_head_prefix, nn.Linear(config.hidden_size, self.latent_dim*2, bias=False))
-            
             
             self.post_init()
             self.packing_samples = packing_samples
@@ -233,6 +244,20 @@ def _get_reward_model(base_pretrained_model, base_llm_model, packing_samples=Fal
             self.print_reward_position=True
             # self.variables_list = []
 
+            self.ibl_coef = config.ibl_coef
+            if self.ibl_coef:
+                assert len(self.ibl_coef) == 2
+                ibl_path_list = config.ibl_path.split(',')
+                for ibl_path in ibl_path_list:
+                    if 'harmless' in ibl_path:
+                        self.harmless_ib_buffer = np.array(np.load(ibl_path))
+                    elif 'helpful' in ibl_path:
+                        self.helpful_ib_buffer = np.array(np.load(ibl_path))
+                    else:
+                        self.helpful_ib_buffer, self.harmless_ib_buffer = None, None
+            
+                # assert self.helpful_ib_buffer and self.harmless_ib_buffer
+
 
         def forward(
             self,
@@ -242,6 +267,8 @@ def _get_reward_model(base_pretrained_model, base_llm_model, packing_samples=Fal
             ring_attn_group=None,
             pad_sequence=False,
             packed_seq_lens=None,
+            prompts=None,
+            classes=None
         ) -> torch.Tensor:
             if not self.packing_samples:
                 # https://github.com/OpenRLHF/OpenRLHF/issues/217
@@ -305,9 +332,36 @@ def _get_reward_model(base_pretrained_model, base_llm_model, packing_samples=Fal
 
                     self.print_reward_position = False
 
-            uncertainty = logvar_mean.exp()  # [2*bs]
-            if not self.training and self.uncertainty_coef > 0:
-                reward = reward - self.uncertainty_coef * uncertainty
+            if not self.training and self.ibl_coef:
+                assert classes and len(classes) == ib_representation.shape[0]
+                helpful_mask = torch.tensor([1 if class_ == 'helpful' else 0 for class_ in classes], dtype=torch.bool).cuda()
+                # print("helpful_mask is {}".format(helpful_mask))
+                harmless_mask = torch.tensor([1 if class_ == 'harmless' else 0 for class_ in classes], dtype=torch.bool).cuda()
+                # print("harmless_mask is {}".format(harmless_mask))
+
+                ib_representation_helpful = ib_representation[helpful_mask]
+                # print("the shape of ib_representation_helpful is {}".format(ib_representation_helpful.shape))
+                ib_representation_harmless = ib_representation[harmless_mask]
+                # print("the shape of ib_representation_harmless is {}".format(ib_representation_harmless.shape))
+
+                helpful_mahalanobis_distance = cal_mahalanobis(self.helpful_ib_buffer, ib_representation_helpful.to(torch.float32).detach().cpu().numpy())
+                # print("the shape of helpful_mahalanobis_distance is {}".format(helpful_mahalanobis_distance.shape))
+                harmless_mahalanobis_distance = cal_mahalanobis(self.harmless_ib_buffer, ib_representation_harmless.to(torch.float32).detach().cpu().numpy())
+                # print("the shape of harmless_mahalanobis_distance is {}".format(harmless_mahalanobis_distance.shape))
+
+                all_mahalanobis_distance = torch.full_like(reward, float('inf')).cuda()
+                all_mahalanobis_distance[helpful_mask] = helpful_mahalanobis_distance.to(torch.bfloat16) * self.ibl_coef[0] 
+                all_mahalanobis_distance[harmless_mask] = harmless_mahalanobis_distance.to(torch.bfloat16) * self.ibl_coef[1]
+                # print("the shape of all_mahalanobis_distance is {}".format(all_mahalanobis_distance.shape))
+                assert (~torch.isinf(all_mahalanobis_distance)).all()
+
+                # mahalanobis_distance = cal_mahalanobis(self.ib_buffer, ib_representation.to(torch.float32).detach().cpu().numpy())
+                # reward = reward - self.ibl_coef * all_mahalanobis_distance if self.ibl_coef > 0 else reward
+                reward = reward - all_mahalanobis_distance
+            else:
+                helpful_mahalanobis_distance = torch.zeros_like(reward)
+                harmless_mahalanobis_distance = torch.zeros_like(reward)
+
 
             if not self.training and self.normalize_reward:
                 reward = (reward - self.mean) / self.std
@@ -317,8 +371,11 @@ def _get_reward_model(base_pretrained_model, base_llm_model, packing_samples=Fal
             outputs["ib_representation_logvar"] = ib_representation_logvar.tolist()
             outputs["mu_mean"] = mu_mean.tolist()
             outputs["logvar_mean"] = logvar_mean.tolist()
-            outputs["uncertainty"] = uncertainty.tolist()
+            outputs["mahalanobis_helpful"] = [torch.mean(helpful_mahalanobis_distance).item()] * len(reward)
+            outputs["mahalanobis_harmless"] = [torch.mean(harmless_mahalanobis_distance).item()] * len(reward)
 
+            # outputs["mahalanobis"] = mahalanobis_distance.tolist()
+            # print("miao debug info: mahalanobis_distance is {}".format(mahalanobis_distance.tolist()))
 #             self.variables_list.append(eps)
 #             print("length of random variable is {}".format(len(set(tuple(var.flatten().tolist()) for var in self.variables_list)
 # )))

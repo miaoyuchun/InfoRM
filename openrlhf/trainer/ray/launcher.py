@@ -121,7 +121,8 @@ class RewardModelRayActor(BasePPORole):
                 load_in_4bit=strategy.args.load_in_4bit,
                 ds_config=strategy.get_ds_eval_config(offload=strategy.args.ref_reward_offload),
                 packing_samples=strategy.args.packing_samples,
-                uncertainty_coef=strategy.args.uncertainty_coef
+                ibl_coef=strategy.args.ibl_coef,
+                ibl_path = strategy.args.ibl_path
             )
         else:
             strategy.print("Standard RM is activated !!!")
@@ -152,15 +153,35 @@ class RewardModelRayActor(BasePPORole):
         attention_mask: Optional[torch.Tensor] = None,
         packed_seq_lens=None,
         pad_sequence=False,
+        return_output=False,
+        prompts=None,
+        classes=None,
     ) -> torch.Tensor:
         device = torch.cuda.current_device()
         with torch.no_grad():
+            if return_output:
+                reward, outputs = self.model(
+                    sequences.to(device),
+                    attention_mask.to(device),
+                    ring_attn_group=self.strategy.ring_attn_group,
+                    pad_sequence=True,
+                    packed_seq_lens=packed_seq_lens,
+                    return_output=return_output,
+                    prompts=prompts,
+                    classes=classes,
+                )
+                outputs = {k: (v.tolist() if hasattr(v, "tolist") else v) if not isinstance(v, list) else v for k, v in outputs.items()}
+                return (reward.to("cpu"), outputs)
+            else:
             reward = self.model(
                 sequences.to(device),
                 attention_mask.to(device),
                 ring_attn_group=self.strategy.ring_attn_group,
                 pad_sequence=True,
                 packed_seq_lens=packed_seq_lens,
+                    return_output=return_output,
+                    prompts=prompts,
+                    classes=classes,
             )
         return reward.to("cpu")
 

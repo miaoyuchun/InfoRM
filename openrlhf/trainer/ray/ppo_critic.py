@@ -195,6 +195,10 @@ class CriticModelRayActor(BasePPORole):
 
     def append(self, experience):
         """Append experience to replay buffer."""
+        if 'prompts' in experience.info:
+            del experience.info['prompts']
+        if 'classes' in experience.info:
+            del experience.info['classes']
         self.trainer.replay_buffer.append(experience)
 
     def fit(self):

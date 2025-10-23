@@ -45,6 +45,8 @@ class PromptDataset(Dataset):
         self.input_template = input_template
         self.input_key = getattr(self.strategy.args, "input_key", None)
         self.label_key = getattr(self.strategy.args, "label_key", None)
+        self.class_key = getattr(self.strategy.args, "class_key", None)
+
         self.apply_chat_template = getattr(self.strategy.args, "apply_chat_template", False)
 
         if self.apply_chat_template:
@@ -69,6 +71,7 @@ class PromptDataset(Dataset):
         
         self.prompts = processed_dataset["prompt"]
         self.labels = processed_dataset["label"]
+        self.class_ = processed_dataset["class"]
     
     def process_data(self, data):
         prompt, label = preprocess_data(data, self.input_template, self.input_key, self.label_key, self.apply_chat_template)
@@ -76,11 +79,16 @@ class PromptDataset(Dataset):
         prompt_id_length = prompt_token["attention_mask"].int().sum().item()
         if prompt_id_length >= self.prompt_max_len:
             prompt = None
-        return {'prompt': prompt, 'label': label}
+        if self.class_key:
+            class_ = data[self.class_key]
+        else:
+            class_ = ""
+        return {'prompt': prompt, 'label': label, 'class': class_}
+        
 
     def __len__(self):
         length = len(self.prompts)
         return length
 
     def __getitem__(self, idx):
-        return self.prompts[idx], self.labels[idx]
+        return self.prompts[idx], self.labels[idx], self.class_[idx]
