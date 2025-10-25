@@ -11,7 +11,7 @@ This repository also provides the official implementation of our extended journa
 
 [Yuchun Miao][myc], [Liang Ding][dl], [Sen Zhang][zs], [Rong Bao][br], [Lefei Zhang][zlf], [Dacheng Tao][tdc]
 
-## Installation
+# Installation
 ```bash
 conda create -n inform python=3.12 -y
 conda activate inform
