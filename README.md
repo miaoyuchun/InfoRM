@@ -11,7 +11,7 @@ This repository also provides the official implementation of our extended journa
 
 [Yuchun Miao][myc], [Liang Ding][dl], [Sen Zhang][zs], [Rong Bao][br], [Lefei Zhang][zlf], [Dacheng Tao][tdc]
 
-# Installation
+## Installation
 ```bash
 conda create -n inform python=3.12 -y
 conda activate inform
@@ -22,7 +22,7 @@ cd InfoRM
 pip install -e .
 ```
 
-# Prepare Datasets
+## Prepare Datasets
 The data format used in this project is fully consistent with that of [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF).
 
  To reproduce this work, you can process the [ShareGPT](https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered) dataset for SFT and the [Anthropic HH](https://arxiv.org/pdf/2204.05862.) dataset for RM and PPO training following the data format specifications provided by OpenRLHF.
@@ -122,5 +122,5 @@ url={https://arxiv.org/abs/2510.13694},
 [tdc]: https://scholar.google.com/citations?user=RwlJNLcAAAAJ&hl=en
 
 
-# Thanks
+## Thanks
 This project is based on [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF). Thanks for this wonderful work!<br>
