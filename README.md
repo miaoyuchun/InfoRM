@@ -5,7 +5,7 @@ This repository contains the official implementation of this article
 
 [Yuchun Miao][myc], [Sen Zhang][zs], [Liang Ding][dl], [Rong Bao][br], [Lefei Zhang][zlf], [Dacheng Tao][tdc]
 
-This repository also provides the official implementation of our extended journal version, submitted to IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI):
+This repository also provides the official implementation of our extended journal version:
 
 **[[ArXiv 2025] Information-Theoretic Reward Modeling for Stable RLHF: Detecting and Mitigating Reward Hacking][2]**
 
